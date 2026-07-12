@@ -1,0 +1,21 @@
+{
+  "name": "@opentools/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@opentools/mindmap-core": "0.1.0",
+    "@opentools/mindmap-format": "0.1.0",
+    "@opentools/mindmap-layout": "0.1.0",
+    "@opentools/mindmap-renderer-svg": "0.1.0",
+    "@opentools/mindmap-storage": "0.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zustand": "^5.0.11"
+  }
+}

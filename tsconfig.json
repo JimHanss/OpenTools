@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/mindmap-core" },
+    { "path": "./packages/mindmap-layout" },
+    { "path": "./packages/mindmap-renderer-svg" },
+    { "path": "./packages/mindmap-storage" },
+    { "path": "./packages/mindmap-format" },
+    { "path": "./apps/web" }
+  ]
+}
