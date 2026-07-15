@@ -1,10 +1,24 @@
+# 依赖
 node_modules/
+
+# 构建和 TypeScript 输出
 dist/
+*.tsbuildinfo
+
+# 测试报告和浏览器自动化状态
 coverage/
 playwright-report/
 test-results/
 .playwright-cli/
-*.tsbuildinfo
+
+# 本地环境和临时文件
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+
+# 操作系统和编辑器元数据
 .DS_Store
 .idea/
 .vscode/

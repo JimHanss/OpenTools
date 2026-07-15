@@ -1,78 +1,92 @@
 # Project structure
 
-This document is the long-lived directory and dependency guide for the OpenTools mind map editor. Update it whenever a top-level application or package is added, removed, or changes responsibility.
+This is the durable directory and dependency guide for the OpenTools web MVP.
+The source of truth for map data is always the platform-neutral document in
+`mindmap-core`; browser components only dispatch commands and display derived
+layout/scene data.
 
 ## Directory map
 
 ```text
 OpenTools/
 ├─ apps/
-│  └─ web/                         React + Vite web application
+│  └─ web/
+│     ├─ e2e/                     Playwright acceptance coverage
 │     └─ src/
-│        ├─ editor/                Web-only editor UI state and interactions
-│        ├─ App.tsx                Application shell and SVG scene composition
-│        ├─ main.tsx               Browser entry point
-│        └─ styles.css             Application styles and design tokens
+│        ├─ app/                  Library/editor route composition and app hook
+│        ├─ components/           Editor shell, SVG canvas, topic inspector, library UI
+│        ├─ editor/               Session/history, autosave, viewport, keyboard, UI store
+│        ├─ library/              Repository-backed map lifecycle service
+│        ├─ platform/             Browser clipboard, IDs, file transfer, external-link adapters
+│        ├─ App.tsx               Top-level application composition
+│        └─ styles.css            Web styles and interaction states
 ├─ packages/
-│  ├─ mindmap-core/                Platform-neutral document model and commands
-│  ├─ mindmap-layout/              Platform-neutral tree layout calculations
-│  ├─ mindmap-renderer-svg/        SVG path and rendering helpers for the web
-│  ├─ mindmap-storage/             Storage contract and IndexedDB adapter
-│  └─ mindmap-format/              JSON schema, validation, and migrations
-├─ docs/
-│  └─ PROJECT_STRUCTURE.md         This directory and architecture reference
-├─ AGENTS.md                       Durable product scope and quality constraints
-├─ package.json                    npm workspaces and repository scripts
-├─ tsconfig.base.json              Shared TypeScript compiler rules
-├─ tsconfig.json                   TypeScript project references
-└─ vitest.config.ts                Repository test configuration
+│  ├─ mindmap-core/               Domain model, validation, commands, history, search, tidy preview
+│  ├─ mindmap-format/             JSON v1/v2 schemas, migration and format errors
+│  ├─ mindmap-layout/             Pure left-to-right tree layout and bounds
+│  ├─ mindmap-renderer-svg/       Pure scene primitives, connector paths and SVG serializer
+│  └─ mindmap-storage/            Repository contract, memory and Dexie/IndexedDB adapters
+├─ docs/                          User and architecture documentation
+├─ specs/web-mind-map-mvp/        Requirements, plan, tasks and verification record
+├─ CODE_MAP.md                    Code ownership and important exports
+├─ PROJECT_PROGRESS.md            Current delivery status and known risks
+├─ playwright.config.ts           Chromium acceptance-test configuration
+└─ package.json                   npm workspaces and repository scripts
 ```
 
-Generated directories such as `node_modules`, `dist`, `coverage`, and browser test reports are intentionally ignored by Git.
+Generated dependency, build, test-report and browser-automation files are
+ignored by Git. Source, tests, specs, lockfiles, and documentation are not.
 
 ## Dependency direction
 
 ```text
 apps/web
-  ├─> mindmap-core
-  ├─> mindmap-layout ──> mindmap-core
-  ├─> mindmap-renderer-svg ──> mindmap-layout
-  ├─> mindmap-storage ──> mindmap-core
-  └─> mindmap-format ──> mindmap-core
+  ├─ mindmap-core
+  ├─ mindmap-layout ────────> mindmap-core
+  ├─ mindmap-renderer-svg ─> mindmap-core + mindmap-layout
+  ├─ mindmap-storage ──────> mindmap-core
+  └─ mindmap-format ───────> mindmap-core
 ```
 
 Rules:
 
-1. `mindmap-core` must not import React, DOM, IndexedDB, SVG, Canvas, or mini-program APIs.
-2. `mindmap-layout` must accept structured data and return positions and connectors without reading the DOM.
-3. Rendering packages consume layout results but never become the source of truth.
-4. Storage and platform APIs are accessed through replaceable interfaces.
-5. User-visible edits will be introduced as commands so undo/redo and future synchronization share one change model.
-6. Internal JSON always carries a `schemaVersion`; migrations belong in `mindmap-format`.
+1. `mindmap-core` must not import React, DOM, IndexedDB, SVG, Canvas, or
+   mini-program APIs.
+2. `mindmap-layout` consumes the document and returns node positions, edge
+   geometry, and complete bounds without measuring the DOM.
+3. `mindmap-renderer-svg` turns a validated document plus layout into SVG
+   primitives; it never owns editable state.
+4. Storage and browser capabilities are adapters behind small interfaces.
+5. Any document edit must be a reversible command so history and future sync
+   layers use one change model.
+6. Internal JSON carries `schemaVersion`; parsing, serialization, and
+   migration stay in `mindmap-format`.
+
+## Implemented command groups
+
+`mindmap-core` contains reversible commands for title and topic text, node
+creation/move/delete/paste, style, markers, notes, links, collapse state,
+relationships, boundaries, summaries, and explicit tidy-order updates. The
+editor session owns the command history and autosave revision; Zustand contains
+only transient UI state such as selection, viewport, drag preview, and search.
 
 ## Future platform expansion
 
-The planned sequence is desktop web, responsive/PWA web, mini program, then native or hybrid mobile only if required.
-
-A mini-program client should reuse `mindmap-core`, `mindmap-layout`, and `mindmap-format`, then provide platform-specific packages such as:
-
-```text
-apps/mini-program/
-packages/mindmap-renderer-mini/
-packages/mindmap-storage-mini/
-packages/platform-mini/
-```
-
-Do not move browser-only code into the reusable packages merely to avoid a small adapter.
+The intended order is desktop web, responsive/PWA web, mini program, then a
+native or hybrid client only if PWA and mini-program integrations cannot meet a
+real requirement. A mini-program app should reuse `mindmap-core`,
+`mindmap-layout`, and `mindmap-format`, then add platform-specific renderer,
+storage, clipboard, and file-share adapters. Do not move browser APIs into the
+reusable packages merely to avoid a small adapter.
 
 ## Repository commands
 
-| Command              | Purpose                                         |
-| -------------------- | ----------------------------------------------- |
-| `npm run dev`        | Start the Vite development server               |
-| `npm run build`      | Type-check all workspaces and build the web app |
-| `npm run typecheck`  | Run TypeScript project references               |
-| `npm run lint`       | Lint application and package source             |
-| `npm test`           | Run Vitest tests once                           |
-| `npm run test:watch` | Run Vitest in watch mode                        |
-| `npm run format`     | Format repository files with Prettier           |
+| Command                | Purpose                                          |
+| ---------------------- | ------------------------------------------------ |
+| `npm run dev`          | Start the Vite web development server.           |
+| `npm run build`        | Type-check all workspaces and build the web app. |
+| `npm run typecheck`    | Run TypeScript project references.               |
+| `npm run lint`         | Lint application and package source.             |
+| `npm test`             | Run Vitest unit/integration tests once.          |
+| `npm run test:e2e`     | Run Chromium Playwright acceptance tests.        |
+| `npm run format:check` | Check Prettier formatting.                       |

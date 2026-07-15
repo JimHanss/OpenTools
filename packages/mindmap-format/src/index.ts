@@ -1,39 +1,124 @@
-import { z } from 'zod'
+import {
+  assertMindMapDocument,
+  MindMapValidationError,
+  type MindMapDocument,
+} from '@opentools/mindmap-core'
 
-import type { MindMapDocument } from '@opentools/mindmap-core'
+import { MindMapFormatError, toMindMapFormatError } from './errors'
+import { migrateV1Document, normalizeV2Document } from './migration'
+import {
+  mindMapDocumentSchema,
+  mindMapDocumentV1Schema,
+  mindMapDocumentV2Schema,
+} from './schema'
 
-const nodeStyleSchema = z.object({
-  backgroundColor: z.string(),
-  borderColor: z.string(),
-  textColor: z.string(),
-})
+export * from './errors'
+export * from './migration'
+export * from './schema'
 
-const mindMapNodeSchema = z.object({
-  id: z.string(),
-  parentId: z.string().nullable(),
-  childIds: z.array(z.string()),
-  text: z.string(),
-  collapsed: z.boolean(),
-  markers: z.array(z.string()),
-  notes: z.string(),
-  links: z.array(z.object({ label: z.string(), url: z.string() })),
-  style: nodeStyleSchema,
-})
+function getSchemaVersion(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null) return undefined
+  return Reflect.get(input, 'schemaVersion')
+}
 
-export const mindMapDocumentSchema = z.object({
-  schemaVersion: z.literal(1),
-  id: z.string(),
-  title: z.string(),
-  rootNodeId: z.string(),
-  nodes: z.record(z.string(), mindMapNodeSchema),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
+function validateTree(document: MindMapDocument): MindMapDocument {
+  try {
+    return assertMindMapDocument(document)
+  } catch (error) {
+    if (error instanceof MindMapValidationError) {
+      throw new MindMapFormatError(
+        'invalid-tree',
+        'The mind map structure is invalid.',
+        error,
+      )
+    }
+    throw error
+  }
+}
 
+function validateSerializableDocument(
+  document: MindMapDocument,
+): MindMapDocument {
+  const parsed = mindMapDocumentV2Schema.safeParse(document)
+  if (!parsed.success) {
+    throw new MindMapFormatError(
+      'invalid-document',
+      'The current mind map contains invalid fields and cannot be exported.',
+      parsed.error,
+    )
+  }
+
+  return validateTree(normalizeV2Document(parsed.data))
+}
+
+/** Parses a v1 or v2 file and always returns the editable v2 domain format. */
 export function parseMindMapDocument(input: unknown): MindMapDocument {
-  return mindMapDocumentSchema.parse(input)
+  const schemaVersion = getSchemaVersion(input)
+
+  if (typeof schemaVersion !== 'number') {
+    throw new MindMapFormatError(
+      'invalid-document',
+      'The mind map file is missing a valid schema version.',
+    )
+  }
+
+  if (schemaVersion > 2) {
+    throw new MindMapFormatError(
+      'unsupported-schema-version',
+      'This mind map file was created by a newer version of OpenTools.',
+    )
+  }
+
+  const parsed = mindMapDocumentSchema.safeParse(input)
+  if (!parsed.success) {
+    throw new MindMapFormatError(
+      'invalid-document',
+      'The mind map file contains invalid fields.',
+      parsed.error,
+    )
+  }
+
+  try {
+    const document =
+      parsed.data.schemaVersion === 1
+        ? migrateV1Document(mindMapDocumentV1Schema.parse(parsed.data))
+        : normalizeV2Document(mindMapDocumentV2Schema.parse(parsed.data))
+
+    return validateTree(document)
+  } catch (error) {
+    if (error instanceof MindMapFormatError) throw error
+    throw toMindMapFormatError(
+      error,
+      'migration-failed',
+      'The mind map file could not be migrated safely.',
+    )
+  }
+}
+
+export function parseMindMapDocumentJson(json: string): MindMapDocument {
+  try {
+    return parseMindMapDocument(JSON.parse(json) as unknown)
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new MindMapFormatError(
+        'invalid-json',
+        'The selected file is not valid JSON.',
+        error,
+      )
+    }
+    throw error
+  }
 }
 
 export function serializeMindMapDocument(document: MindMapDocument): string {
-  return JSON.stringify(document, null, 2)
+  try {
+    return JSON.stringify(validateSerializableDocument(document), null, 2)
+  } catch (error) {
+    if (error instanceof MindMapFormatError) throw error
+    throw toMindMapFormatError(
+      error,
+      'invalid-document',
+      'The current mind map cannot be exported safely.',
+    )
+  }
 }

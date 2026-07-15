@@ -8,6 +8,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@opentools/mindmap-core": "0.1.0",
     "@opentools/mindmap-layout": "0.1.0"
   }
 }

@@ -8,6 +8,9 @@
     "rootDir": "src",
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
-  "references": [{ "path": "../mindmap-layout" }],
+  "references": [
+    { "path": "../mindmap-core" },
+    { "path": "../mindmap-layout" }
+  ],
   "include": ["src"]
 }
