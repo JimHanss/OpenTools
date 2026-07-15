@@ -43,6 +43,7 @@ export const en = {
     tidyPreview_one: 'Preview: reorder {{count}} branch across this map',
     tidyPreview_other: 'Preview: reorder {{count}} branches across this map',
     importJson: 'Import JSON',
+    importJsonFile: 'JSON file to import',
     exportJson: 'Export JSON',
     exportSvg: 'Export SVG',
     exportPng: 'Export PNG',

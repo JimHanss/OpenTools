@@ -239,6 +239,7 @@ export function EditorShell({
             <input
               ref={importInputRef}
               accept="application/json,.json"
+              aria-label={t('editor.importJsonFile')}
               className="sr-only"
               type="file"
               onChange={(event) => {

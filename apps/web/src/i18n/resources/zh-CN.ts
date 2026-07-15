@@ -51,6 +51,7 @@ export const zhCN = {
     tidyPreview_one: '预览：将重新排列 {{count}} 个分支',
     tidyPreview_other: '预览：将重新排列 {{count}} 个分支',
     importJson: '导入 JSON',
+    importJsonFile: '要导入的 JSON 文件',
     exportJson: '导出 JSON',
     exportSvg: '导出 SVG',
     exportPng: '导出 PNG',
