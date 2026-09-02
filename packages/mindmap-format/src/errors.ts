@@ -1,8 +1,12 @@
 export type MindMapFormatErrorCode =
+  | 'asset-checksum-mismatch'
+  | 'asset-limit-exceeded'
+  | 'invalid-bundle'
   | 'invalid-document'
   | 'invalid-json'
   | 'invalid-tree'
   | 'migration-failed'
+  | 'missing-asset'
   | 'unsupported-schema-version'
 
 /**

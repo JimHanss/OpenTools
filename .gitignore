@@ -1,24 +1,34 @@
 # 依赖
 node_modules/
 
-# 构建和 TypeScript 输出
+# 构建与 TypeScript 输出
 dist/
 *.tsbuildinfo
+.vite/
 
-# 测试报告和浏览器自动化状态
+# 测试、覆盖率与浏览器自动化产物
 coverage/
 playwright-report/
+blob-report/
 test-results/
+output/
 .playwright-cli/
 
-# 本地环境和临时文件
+# 性能分析、缓存与临时导出
+*.cpuprofile
+*.heapsnapshot
+.cache/
+.tmp/
+tmp/
+
+# 本地环境与临时文件
 .env
 .env.*
 !.env.example
 *.log
 *.tmp
 
-# 操作系统和编辑器元数据
+# 操作系统与编辑器元数据
 .DS_Store
 .idea/
 .vscode/

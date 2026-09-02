@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMindMapDocument,
   CommandHistory,
+  createMindMapBoundary,
   createTidyLayoutPreview,
   createMindMapClipboardPayload,
   createMindMapNode,
+  createMindMapRelationship,
+  createMindMapSummary,
   duplicateMindMapClipboardPayload,
   executeMindMapCommand,
   MindMapCommandError,
@@ -512,12 +515,12 @@ describe('relationship, grouping and tidy commands', () => {
         label: 'Create relationship',
         payload: {
           relationships: [
-            {
+            createMindMapRelationship({
               id: 'rel-1',
               fromNodeId: 'a',
               toNodeId: 'b',
               label: 'depends on',
-            },
+            }),
           ],
         },
       },
@@ -530,7 +533,12 @@ describe('relationship, grouping and tidy commands', () => {
         label: 'Edit relationship',
         payload: {
           relationships: [
-            { id: 'rel-1', fromNodeId: 'a', toNodeId: 'b', label: 'blocks' },
+            createMindMapRelationship({
+              id: 'rel-1',
+              fromNodeId: 'a',
+              toNodeId: 'b',
+              label: 'blocks',
+            }),
           ],
         },
       },
@@ -563,7 +571,11 @@ describe('relationship, grouping and tidy commands', () => {
         label: 'Add boundary',
         payload: {
           boundaries: [
-            { id: 'boundary-1', nodeIds: ['a', 'a-1'], label: 'Plan' },
+            createMindMapBoundary({
+              id: 'boundary-1',
+              nodeIds: ['a', 'a-1'],
+              label: 'Plan',
+            }),
           ],
         },
       },
@@ -576,7 +588,11 @@ describe('relationship, grouping and tidy commands', () => {
         label: 'Add summary',
         payload: {
           summaries: [
-            { id: 'summary-1', nodeIds: ['a', 'b'], label: 'Overview' },
+            createMindMapSummary({
+              id: 'summary-1',
+              nodeIds: ['a', 'b'],
+              label: 'Overview',
+            }),
           ],
         },
       },
@@ -621,7 +637,12 @@ describe('relationship, grouping and tidy commands', () => {
           label: 'Invalid relationship',
           payload: {
             relationships: [
-              { id: 'rel-1', fromNodeId: 'a', toNodeId: 'a', label: '' },
+              createMindMapRelationship({
+                id: 'rel-1',
+                fromNodeId: 'a',
+                toNodeId: 'a',
+                label: '',
+              }),
             ],
           },
         },

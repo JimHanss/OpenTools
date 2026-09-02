@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  createMindMapBoundary,
+  createMindMapCallout,
+  createMindMapRelationship,
+  createMindMapSummary,
   mindMapCommandTypes,
   normalizeTopLevelNodeSelection,
   type CommandResult,
@@ -10,13 +14,23 @@ import {
   type MindMapDocument,
   type MindMapMarkerKind,
   type MindMapNode,
-  type MindMapNodeStyle,
 } from '@opentools/mindmap-core'
-
 import {
-  createBatchMarkerCommand,
-  createBatchStyleCommand,
-} from '../editor/actions'
+  getMindMapEquationRenderKey,
+  type EquationRenderer,
+  type RenderableMindMapAsset,
+  type RenderableMindMapEquation,
+} from '@opentools/mindmap-renderer-svg'
+
+import { createBatchMarkerCommand } from '../editor/actions'
+import {
+  editorActionIds,
+  type EditorActionDispatcher,
+} from '../editor/action-registry'
+import {
+  getSelectedTopicIds,
+  reconcileEditorSelection,
+} from '../editor/selection'
 import { useEditorUiStore } from '../editor/store'
 import { toLocalizedError } from '../i18n/errors'
 import {
@@ -29,60 +43,28 @@ import {
   openSafeExternalLink,
 } from '../platform/external-link'
 import { createPlatformId } from '../platform/ids'
+import { SemanticInspector } from './semantic-inspector'
+import { EnhancementInspector } from './enhancement-inspector'
+import { TopicStyleInspector } from './topic-style-inspector'
+import type { EquationEditorValue } from './equation-editor-dialog'
+
+const EquationEditorDialog = lazy(() =>
+  import('./equation-editor-dialog').then(({ EquationEditorDialog }) => ({
+    default: EquationEditorDialog,
+  })),
+)
 
 export interface TopicInspectorProps {
+  readonly actionDispatcher: EditorActionDispatcher
+  readonly assets?: Readonly<Record<string, RenderableMindMapAsset>>
   readonly document: MindMapDocument
+  readonly equationRenderer?: EquationRenderer | undefined
+  readonly equations?:
+    Readonly<Record<string, RenderableMindMapEquation>> | undefined
+  readonly isImageBusy?: boolean
   readonly onExecute: (command: MindMapCommand) => CommandResult | undefined
+  readonly onInsertImage?: (nodeId: string, source: Blob) => Promise<void>
 }
-
-interface StylePreset {
-  readonly id: string
-  readonly labelKey:
-    | 'inspector.presets.default'
-    | 'inspector.presets.lavender'
-    | 'inspector.presets.mint'
-    | 'inspector.presets.sunset'
-  readonly style: Partial<MindMapNodeStyle>
-}
-
-const stylePresets: readonly StylePreset[] = [
-  {
-    id: 'default',
-    labelKey: 'inspector.presets.default',
-    style: {
-      backgroundColor: '#ffffff',
-      borderColor: '#8c82e7',
-      textColor: '#29263f',
-    },
-  },
-  {
-    id: 'lavender',
-    labelKey: 'inspector.presets.lavender',
-    style: {
-      backgroundColor: '#eeeaff',
-      borderColor: '#7768e8',
-      textColor: '#312e68',
-    },
-  },
-  {
-    id: 'mint',
-    labelKey: 'inspector.presets.mint',
-    style: {
-      backgroundColor: '#e0f7ef',
-      borderColor: '#36a47f',
-      textColor: '#164f3e',
-    },
-  },
-  {
-    id: 'sunset',
-    labelKey: 'inspector.presets.sunset',
-    style: {
-      backgroundColor: '#fff0df',
-      borderColor: '#df8e49',
-      textColor: '#704018',
-    },
-  },
-]
 
 function getMarkerValue(node: MindMapNode, kind: MindMapMarkerKind): string {
   return node.markers.find((marker) => marker.kind === kind)?.value ?? ''
@@ -97,9 +79,22 @@ function getSharedMarkerValue(
 }
 
 /** Inspector for command-backed styles, metadata and safe external links. */
-export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
+export function TopicInspector({
+  actionDispatcher,
+  assets = {},
+  document,
+  equationRenderer,
+  equations = {},
+  isImageBusy = false,
+  onExecute,
+  onInsertImage,
+}: TopicInspectorProps) {
   const { t } = useTranslation()
-  const selectedNodeIds = useEditorUiStore((state) => state.selectedNodeIds)
+  const selection = useEditorUiStore((state) => state.selection)
+  const setSelection = useEditorUiStore((state) => state.setSelection)
+  const selectedNodeIds = getSelectedTopicIds(
+    reconcileEditorSelection(document, selection),
+  )
   const selectedNodes = useMemo(
     () =>
       normalizeTopLevelNodeSelection(document, selectedNodeIds)
@@ -109,6 +104,8 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
   )
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
   const [notes, setNotes] = useState('')
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const imageButtonRef = useRef<HTMLButtonElement | null>(null)
   const [linkLabel, setLinkLabel] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [editingLinkIndex, setEditingLinkIndex] = useState<number | null>(null)
@@ -116,6 +113,10 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
   const [boundaryLabel, setBoundaryLabel] = useState('')
   const [summaryLabel, setSummaryLabel] = useState('')
   const [error, setError] = useState<LocalizedMessage | null>(null)
+  const [equationEditor, setEquationEditor] = useState<{
+    readonly blockId?: string | undefined
+    readonly initialSource: string
+  } | null>(null)
 
   useEffect(() => {
     setNotes(selectedNode?.notes ?? '')
@@ -123,6 +124,7 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
     setLinkUrl('')
     setEditingLinkIndex(null)
     setError(null)
+    setEquationEditor(null)
   }, [selectedNode?.id, selectedNode?.notes])
 
   const selectedTopicIds = selectedNodes.map((node) => node.id)
@@ -144,6 +146,11 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
   const selectedSummary = document.summaries.find((summary) =>
     matchesSelectedTopics(summary.nodeIds),
   )
+  const selectedCallout = selectedNode
+    ? document.callouts.find(
+        (callout) => callout.ownerNodeId === selectedNode.id,
+      )
+    : undefined
 
   useEffect(() => {
     setRelationshipLabel(selectedRelationship?.label ?? '')
@@ -159,6 +166,21 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
     selectedTopicKey,
   ])
 
+  if (
+    selection.kind === 'relationship' ||
+    selection.kind === 'boundary' ||
+    selection.kind === 'summary' ||
+    selection.kind === 'callout'
+  ) {
+    return (
+      <EnhancementInspector
+        document={document}
+        selection={selection}
+        onExecute={onExecute}
+      />
+    )
+  }
+
   if (selectedNodes.length === 0) {
     return (
       <aside className="topic-inspector" aria-label={t('inspector.label')}>
@@ -170,14 +192,32 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
   function execute(command: MindMapCommand) {
     setError(null)
     try {
-      onExecute(command)
+      return onExecute(command)
     } catch (commandError) {
       setError(toLocalizedError(commandError, 'errors.topicUpdateFailed'))
     }
+    return undefined
   }
 
-  function applyStyle(style: Partial<MindMapNodeStyle>) {
-    execute(createBatchStyleCommand(document, selectedNodeIds, style))
+  function createOrSelectCallout() {
+    if (!selectedNode) return
+    if (selectedCallout) {
+      setSelection({ kind: 'callout', id: selectedCallout.id })
+      return
+    }
+    const calloutId = createPlatformId('callout')
+    const result = execute({
+      type: mindMapCommandTypes.createCallout,
+      label: 'Create callout',
+      payload: {
+        callout: createMindMapCallout({
+          id: calloutId,
+          ownerNodeId: selectedNode.id,
+          text: t('defaults.callout'),
+        }),
+      },
+    })
+    if (result) setSelection({ kind: 'callout', id: calloutId })
   }
 
   function applyMarker(kind: MindMapMarkerKind, value: string) {
@@ -202,15 +242,6 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
       type: mindMapCommandTypes.updateNodeNotes,
       label: 'Remove topic notes',
       payload: { nodeId: selectedNode.id, notes: '' },
-    })
-  }
-
-  function toggleCollapse() {
-    if (!selectedNode || selectedNode.childIds.length === 0) return
-    execute({
-      type: mindMapCommandTypes.setNodeCollapse,
-      label: selectedNode.collapsed ? 'Expand topic' : 'Collapse topic',
-      payload: { nodeId: selectedNode.id, collapsed: !selectedNode.collapsed },
     })
   }
 
@@ -251,83 +282,83 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
 
   function saveRelationship() {
     if (selectedTopicIds.length !== 2) return
-    const next = selectedRelationship
-      ? document.relationships.map((relationship) =>
-          relationship.id === selectedRelationship.id
-            ? {
-                ...relationship,
-                label: relationshipLabel.trim() || t('defaults.related'),
-              }
-            : relationship,
-        )
-      : [
-          ...document.relationships,
-          {
-            id: createPlatformId('relationship'),
-            fromNodeId: selectedTopicIds[0]!,
-            toNodeId: selectedTopicIds[1]!,
-            label: relationshipLabel.trim() || t('defaults.related'),
-          },
-        ]
     execute({
-      type: mindMapCommandTypes.updateRelationships,
+      type: selectedRelationship
+        ? mindMapCommandTypes.updateRelationship
+        : mindMapCommandTypes.createRelationship,
       label: selectedRelationship
         ? 'Update relationship'
         : 'Create relationship',
-      payload: { relationships: next },
-    })
+      payload: selectedRelationship
+        ? {
+            relationshipId: selectedRelationship.id,
+            changes: {
+              label: relationshipLabel.trim() || t('defaults.related'),
+            },
+          }
+        : {
+            relationship: createMindMapRelationship({
+              id: createPlatformId('relationship'),
+              fromNodeId: selectedTopicIds[0]!,
+              toNodeId: selectedTopicIds[1]!,
+              label: relationshipLabel.trim() || t('defaults.related'),
+            }),
+          },
+    } as MindMapCommand)
   }
 
   function deleteRelationship() {
     if (!selectedRelationship) return
     execute({
-      type: mindMapCommandTypes.updateRelationships,
+      type: mindMapCommandTypes.deleteRelationship,
       label: 'Delete relationship',
-      payload: {
-        relationships: document.relationships.filter(
-          (relationship) => relationship.id !== selectedRelationship.id,
-        ),
-      },
+      payload: { relationshipId: selectedRelationship.id },
     })
   }
 
   function saveGrouping(kind: 'boundary' | 'summary') {
     if (selectedTopicIds.length < 2) return
-    const records =
-      kind === 'boundary' ? document.boundaries : document.summaries
     const label = (kind === 'boundary' ? boundaryLabel : summaryLabel).trim()
-    const existing = kind === 'boundary' ? selectedBoundary : selectedSummary
-    const next = existing
-      ? records.map((record) =>
-          record.id === existing.id
-            ? { ...record, label: label || existing.label }
-            : record,
-        )
-      : [
-          ...records,
-          {
-            id: createPlatformId(kind),
-            nodeIds: selectedTopicIds,
-            label:
-              label ||
-              (kind === 'boundary'
-                ? t('defaults.boundary')
-                : t('defaults.summary')),
-          },
-        ]
-    execute(
-      kind === 'boundary'
+    if (kind === 'boundary') {
+      execute({
+        type: selectedBoundary
+          ? mindMapCommandTypes.updateBoundary
+          : mindMapCommandTypes.createBoundary,
+        label: selectedBoundary ? 'Update boundary' : 'Create boundary',
+        payload: selectedBoundary
+          ? {
+              boundaryId: selectedBoundary.id,
+              changes: { label: label || selectedBoundary.label },
+            }
+          : {
+              boundary: createMindMapBoundary({
+                id: createPlatformId('boundary'),
+                nodeIds: selectedTopicIds,
+                label: label || t('defaults.boundary'),
+              }),
+            },
+      } as MindMapCommand)
+      return
+    }
+
+    execute({
+      type: selectedSummary
+        ? mindMapCommandTypes.updateSummary
+        : mindMapCommandTypes.createSummary,
+      label: selectedSummary ? 'Update summary' : 'Create summary',
+      payload: selectedSummary
         ? {
-            type: mindMapCommandTypes.updateBoundaries,
-            label: existing ? 'Update boundary' : 'Create boundary',
-            payload: { boundaries: next },
+            summaryId: selectedSummary.id,
+            changes: { label: label || selectedSummary.label },
           }
         : {
-            type: mindMapCommandTypes.updateSummaries,
-            label: existing ? 'Update summary' : 'Create summary',
-            payload: { summaries: next },
+            summary: createMindMapSummary({
+              id: createPlatformId('summary'),
+              nodeIds: selectedTopicIds,
+              label: label || t('defaults.summary'),
+            }),
           },
-    )
+    } as MindMapCommand)
   }
 
   function deleteGrouping(kind: 'boundary' | 'summary') {
@@ -336,27 +367,80 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
     execute(
       kind === 'boundary'
         ? {
-            type: mindMapCommandTypes.updateBoundaries,
+            type: mindMapCommandTypes.deleteBoundary,
             label: 'Delete boundary',
-            payload: {
-              boundaries: document.boundaries.filter(
-                (boundary) => boundary.id !== existing.id,
-              ),
-            },
+            payload: { boundaryId: existing.id },
           }
         : {
-            type: mindMapCommandTypes.updateSummaries,
+            type: mindMapCommandTypes.deleteSummary,
             label: 'Delete summary',
-            payload: {
-              summaries: document.summaries.filter(
-                (summary) => summary.id !== existing.id,
-              ),
-            },
+            payload: { summaryId: existing.id },
           },
     )
   }
 
-  const sharedStyle = selectedNodes[0]?.style
+  function updateImageBlock(
+    blockId: string,
+    changes: {
+      readonly width?: number
+      readonly height?: number
+      readonly altText?: string
+      readonly preserveAspectRatio?: boolean
+    },
+  ) {
+    if (!selectedNode) return
+    execute({
+      type: mindMapCommandTypes.updateImageContentBlock,
+      label: 'Update topic image',
+      payload: { nodeId: selectedNode.id, blockId, changes },
+    })
+  }
+
+  function saveEquation(value: EquationEditorValue) {
+    if (!selectedNode || !equationEditor) return
+    if (equationEditor.blockId) {
+      execute({
+        type: mindMapCommandTypes.updateEquationContentBlock,
+        label: 'Update topic equation',
+        payload: {
+          nodeId: selectedNode.id,
+          blockId: equationEditor.blockId,
+          changes: {
+            source: value.source,
+            displayMode: 'block',
+            width: value.width,
+            height: value.height,
+          },
+        },
+      })
+    } else {
+      execute({
+        type: mindMapCommandTypes.createEquationContentBlock,
+        label: 'Add topic equation',
+        payload: {
+          nodeId: selectedNode.id,
+          block: {
+            id: createPlatformId('equation-block'),
+            type: 'equation',
+            source: value.source,
+            displayMode: 'block',
+            width: value.width,
+            height: value.height,
+          },
+        },
+      })
+    }
+    setEquationEditor(null)
+  }
+
+  async function insertImage(source: Blob) {
+    if (!selectedNode || !onInsertImage) return
+    try {
+      await onInsertImage(selectedNode.id, source)
+    } finally {
+      imageButtonRef.current?.focus()
+    }
+  }
 
   return (
     <aside className="topic-inspector" aria-label={t('inspector.label')}>
@@ -368,7 +452,13 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
             : t('inspector.selectedCount', { count: selectedNodes.length })}
         </strong>
         {selectedNode && selectedNode.childIds.length > 0 ? (
-          <button type="button" onClick={toggleCollapse}>
+          <button
+            data-action-id={editorActionIds.collapse}
+            type="button"
+            onClick={() =>
+              void actionDispatcher.dispatch(editorActionIds.collapse)
+            }
+          >
             {selectedNode.collapsed
               ? t('inspector.expandBranch')
               : t('inspector.collapseBranch')}
@@ -376,55 +466,11 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
         ) : null}
       </header>
 
-      <section aria-label={t('inspector.styleLabel')}>
-        <h2>{t('inspector.style')}</h2>
-        <div className="style-presets">
-          {stylePresets.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => applyStyle(preset.style)}
-            >
-              {t(preset.labelKey)}
-            </button>
-          ))}
-        </div>
-        <div className="color-controls">
-          <label>
-            {t('inspector.fill')}
-            <input
-              aria-label={t('inspector.fillColor')}
-              type="color"
-              value={sharedStyle?.backgroundColor ?? '#ffffff'}
-              onChange={(event) =>
-                applyStyle({ backgroundColor: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            {t('inspector.border')}
-            <input
-              aria-label={t('inspector.borderColor')}
-              type="color"
-              value={sharedStyle?.borderColor ?? '#8c82e7'}
-              onChange={(event) =>
-                applyStyle({ borderColor: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            {t('inspector.text')}
-            <input
-              aria-label={t('inspector.textColor')}
-              type="color"
-              value={sharedStyle?.textColor ?? '#29263f'}
-              onChange={(event) =>
-                applyStyle({ textColor: event.target.value })
-              }
-            />
-          </label>
-        </div>
-      </section>
+      <TopicStyleInspector
+        document={document}
+        selectedNodeIds={selectedNodeIds}
+        onExecute={execute}
+      />
 
       <section aria-label={t('inspector.markersLabel')}>
         <h2>{t('inspector.markers')}</h2>
@@ -553,6 +599,254 @@ export function TopicInspector({ document, onExecute }: TopicInspectorProps) {
             </div>
           </div>
         </section>
+      ) : null}
+
+      <SemanticInspector
+        document={document}
+        selectedNodes={selectedNodes}
+        onExecute={execute}
+      />
+
+      {selectedNode ? (
+        <section aria-label={t('enhancementInspector.callout')}>
+          <h2>{t('enhancementInspector.callout')}</h2>
+          <button type="button" onClick={createOrSelectCallout}>
+            {selectedCallout
+              ? t('semantic.editCallout')
+              : t('semantic.addCallout')}
+          </button>
+        </section>
+      ) : null}
+
+      {selectedNode ? (
+        <section aria-label={t('image.section')} className="image-inspector">
+          <div className="inspector-section-heading">
+            <h2>{t('image.section')}</h2>
+            <input
+              ref={imageInputRef}
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg"
+              aria-label={t('image.file')}
+              className="sr-only"
+              type="file"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ''
+                if (file) void insertImage(file)
+              }}
+            />
+            <button
+              ref={imageButtonRef}
+              disabled={isImageBusy || !onInsertImage}
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+            >
+              {isImageBusy ? t('image.inserting') : t('image.add')}
+            </button>
+          </div>
+          <p className="inspector-help">{t('image.pasteHint')}</p>
+          <ul className="topic-image-list">
+            {selectedNode.contentBlocks.flatMap((block) => {
+              if (block.type !== 'image') return []
+              const metadata = document.assets[block.assetId]
+              const renderable = assets[block.assetId]
+              return [
+                <li key={block.id}>
+                  {renderable?.state === 'ready' && renderable.href ? (
+                    <img
+                      alt={block.altText}
+                      src={renderable.href}
+                      style={{ maxWidth: Math.min(220, block.width) }}
+                    />
+                  ) : (
+                    <div className="topic-image-placeholder">
+                      {renderable?.state === 'loading'
+                        ? t('image.loading')
+                        : block.altText || t('image.unavailable')}
+                    </div>
+                  )}
+                  <label>
+                    {t('image.width')}
+                    <input
+                      key={`${block.id}-width-${block.width}`}
+                      aria-label={`${t('image.width')} ${block.altText}`}
+                      defaultValue={Math.round(block.width)}
+                      min={32}
+                      max={4096}
+                      type="number"
+                      onBlur={(event) => {
+                        const width = Number(event.currentTarget.value)
+                        if (!Number.isFinite(width) || width <= 0) return
+                        const height =
+                          block.preserveAspectRatio && metadata
+                            ? width *
+                              (metadata.intrinsicHeight /
+                                metadata.intrinsicWidth)
+                            : block.height
+                        updateImageBlock(block.id, {
+                          width,
+                          ...(height ? { height } : {}),
+                        })
+                      }}
+                    />
+                  </label>
+                  <label>
+                    {t('image.altText')}
+                    <input
+                      key={`${block.id}-alt-${block.altText}`}
+                      aria-label={t('image.altText')}
+                      defaultValue={block.altText}
+                      onBlur={(event) =>
+                        updateImageBlock(block.id, {
+                          altText: event.currentTarget.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <div>
+                    <button
+                      disabled={!metadata}
+                      type="button"
+                      onClick={() => {
+                        if (!metadata) return
+                        updateImageBlock(block.id, {
+                          height:
+                            block.width *
+                            (metadata.intrinsicHeight /
+                              metadata.intrinsicWidth),
+                          preserveAspectRatio: true,
+                        })
+                      }}
+                    >
+                      {t('image.restoreRatio')}
+                    </button>
+                    <button
+                      className="danger-button"
+                      type="button"
+                      onClick={() =>
+                        execute({
+                          type: mindMapCommandTypes.deleteImageContentBlock,
+                          label: 'Delete topic image',
+                          payload: {
+                            nodeId: selectedNode.id,
+                            blockId: block.id,
+                          },
+                        })
+                      }
+                    >
+                      {t('image.remove')}
+                    </button>
+                  </div>
+                </li>,
+              ]
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {selectedNode && equationRenderer ? (
+        <section
+          aria-label={t('equation.section')}
+          className="equation-inspector"
+        >
+          <div className="inspector-section-heading">
+            <h2>{t('equation.section')}</h2>
+            <button
+              type="button"
+              onClick={() =>
+                setEquationEditor({
+                  initialSource: String.raw`E = mc^2`,
+                })
+              }
+            >
+              {t('equation.add')}
+            </button>
+          </div>
+          <ul className="topic-equation-list">
+            {selectedNode.contentBlocks.flatMap((block) => {
+              if (block.type !== 'equation') return []
+              const renderable =
+                equations[
+                  getMindMapEquationRenderKey(selectedNode.id, block.id)
+                ]
+              return [
+                <li key={block.id}>
+                  <div
+                    aria-label={block.source}
+                    className="topic-equation-preview"
+                    role="img"
+                  >
+                    {renderable?.state === 'ready' && renderable.svg ? (
+                      <div
+                        dangerouslySetInnerHTML={{ __html: renderable.svg }}
+                      />
+                    ) : (
+                      <span>
+                        {renderable?.state === 'loading'
+                          ? t('equation.loading')
+                          : t('equation.unavailable')}
+                      </span>
+                    )}
+                  </div>
+                  <code className="topic-equation-source">{block.source}</code>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEquationEditor({
+                          blockId: block.id,
+                          initialSource: block.source,
+                        })
+                      }
+                    >
+                      {t('equation.edit')}
+                    </button>
+                    <button
+                      className="danger-button"
+                      type="button"
+                      onClick={() =>
+                        execute({
+                          type: mindMapCommandTypes.deleteEquationContentBlock,
+                          label: 'Delete topic equation',
+                          payload: {
+                            nodeId: selectedNode.id,
+                            blockId: block.id,
+                          },
+                        })
+                      }
+                    >
+                      {t('equation.remove')}
+                    </button>
+                  </div>
+                </li>,
+              ]
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {equationEditor && equationRenderer ? (
+        <Suspense
+          fallback={
+            <div className="equation-dialog-backdrop">
+              <div
+                aria-live="polite"
+                className="equation-dialog-card"
+                role="status"
+              >
+                {t('equation.loading')}
+              </div>
+            </div>
+          }
+        >
+          <EquationEditorDialog
+            key={`${selectedNode?.id ?? 'none'}-${equationEditor.blockId ?? 'new'}`}
+            initialSource={equationEditor.initialSource}
+            isEditing={Boolean(equationEditor.blockId)}
+            renderer={equationRenderer}
+            onCancel={() => setEquationEditor(null)}
+            onSave={saveEquation}
+          />
+        </Suspense>
       ) : null}
 
       {selectedNode ? (

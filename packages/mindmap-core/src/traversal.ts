@@ -1,13 +1,43 @@
 import type { MindMapDocument, MindMapNodeId } from './model'
 import { assertMindMapDocument, MindMapValidationError } from './validation'
 
-export function getNodeIdsInDocumentOrder(
+export function getRootNodeIdsInDocumentOrder(
   document: MindMapDocument,
 ): MindMapNodeId[] {
   assertMindMapDocument(document)
+  return [document.rootNodeId, ...Object.keys(document.floatingTopics)]
+}
 
+export function getOwningRootNodeId(
+  document: MindMapDocument,
+  nodeId: MindMapNodeId,
+): MindMapNodeId {
+  assertMindMapDocument(document)
+
+  const node = document.nodes[nodeId]
+  if (!node) {
+    throw new MindMapValidationError(
+      'missing-child',
+      `Mind map node not found: ${nodeId}`,
+      { nodeId },
+    )
+  }
+
+  let rootId = node.id
+  let parentId = node.parentId
+  while (parentId) {
+    rootId = parentId
+    parentId = document.nodes[parentId]?.parentId ?? null
+  }
+  return rootId
+}
+
+export function getNodeIdsInDocumentOrder(
+  document: MindMapDocument,
+): MindMapNodeId[] {
+  const roots = getRootNodeIdsInDocumentOrder(document)
   const nodeIds: MindMapNodeId[] = []
-  const nodeStack: MindMapNodeId[] = [document.rootNodeId]
+  const nodeStack: MindMapNodeId[] = [...roots].reverse()
 
   while (nodeStack.length > 0) {
     const nodeId = nodeStack.pop()

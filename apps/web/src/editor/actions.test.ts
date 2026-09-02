@@ -55,7 +55,7 @@ describe('editor command builders', () => {
     })
   })
 
-  it('normalizes parent and descendant selections for batch style and move actions', () => {
+  it('styles actual selections while normalizing parent and descendant move actions', () => {
     const document = createMindMapDocument({
       id: 'map',
       rootNodeId: 'root',
@@ -85,14 +85,19 @@ describe('editor command builders', () => {
     })
     expect(style).toMatchObject({
       type: mindMapCommandTypes.batch,
-      payload: { commands: [{ payload: { nodeId: 'parent' } }] },
+      payload: {
+        commands: [
+          { payload: { nodeId: 'parent' } },
+          { payload: { nodeId: 'child' } },
+        ],
+      },
     })
 
     const styled = executeMindMapCommand(document, style, {
       now: '2026-07-15T00:00:01.000Z',
     }).document
     expect(styled.nodes.parent?.style.backgroundColor).toBe('#fff1f1')
-    expect(styled.nodes.child?.style.backgroundColor).not.toBe('#fff1f1')
+    expect(styled.nodes.child?.style.backgroundColor).toBe('#fff1f1')
 
     const move = createBatchMoveCommand(
       document,

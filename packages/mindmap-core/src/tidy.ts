@@ -1,4 +1,5 @@
 import type { MindMapDocument, MindMapNodeId } from './model'
+import { getDescendantNodeIds } from './traversal'
 
 export interface TidyLayoutPreview {
   readonly childIdsByParent: Readonly<
@@ -28,11 +29,21 @@ function compareTopicOrder(
  */
 export function createTidyLayoutPreview(
   document: MindMapDocument,
+  rootNodeId?: MindMapNodeId,
 ): TidyLayoutPreview {
   const childIdsByParent: Record<MindMapNodeId, readonly MindMapNodeId[]> = {}
   const changedParentIds: MindMapNodeId[] = []
 
-  for (const node of Object.values(document.nodes)) {
+  const nodes = rootNodeId
+    ? [
+        document.nodes[rootNodeId],
+        ...getDescendantNodeIds(document, rootNodeId).map(
+          (nodeId) => document.nodes[nodeId],
+        ),
+      ].filter((node) => node !== undefined)
+    : Object.values(document.nodes)
+
+  for (const node of nodes) {
     if (node.childIds.length < 2) continue
     const childIds = [...node.childIds].sort((leftId, rightId) =>
       compareTopicOrder(document, leftId, rightId),

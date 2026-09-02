@@ -1,5 +1,6 @@
 import {
   createMindMapNode,
+  getMindMapStyleScopeNodeIds,
   mindMapCommandTypes,
   normalizeTopLevelNodeSelection,
   type MindMapCommand,
@@ -7,6 +8,8 @@ import {
   type MindMapNodeId,
   type MindMapMarkerKind,
   type MindMapNodeStyle,
+  type MindMapNodeStyleOverride,
+  type MindMapStyleScope,
   type SingleMindMapCommand,
 } from '@opentools/mindmap-core'
 
@@ -87,16 +90,18 @@ export function createDeleteNodesCommand(
 export function createBatchStyleCommand(
   document: MindMapDocument,
   nodeIds: readonly MindMapNodeId[],
-  style: Partial<MindMapNodeStyle>,
+  style: MindMapNodeStyleOverride,
 ): MindMapCommand {
-  const commands: SingleMindMapCommand[] = normalizeTopLevelNodeSelection(
-    document,
-    nodeIds,
-  ).map((nodeId) => ({
-    type: mindMapCommandTypes.updateNodeStyle,
-    label: 'Update topic style',
-    payload: { nodeId, style },
-  }))
+  const definedStyle = Object.fromEntries(
+    Object.entries(style).filter((entry) => entry[1] !== undefined),
+  ) as Partial<MindMapNodeStyle>
+  const commands: SingleMindMapCommand[] = [...new Set(nodeIds)]
+    .filter((nodeId) => document.nodes[nodeId])
+    .map((nodeId) => ({
+      type: mindMapCommandTypes.updateNodeStyle,
+      label: 'Update topic style',
+      payload: { nodeId, style: definedStyle },
+    }))
 
   if (commands.length === 0) {
     throw new Error('Choose at least one topic before changing its style.')
@@ -105,6 +110,62 @@ export function createBatchStyleCommand(
   return {
     type: mindMapCommandTypes.batch,
     label: 'Update selected topic styles',
+    payload: { commands },
+  }
+}
+
+export function createScopedStyleCommand(
+  document: MindMapDocument,
+  anchorNodeIds: readonly MindMapNodeId[],
+  scope: MindMapStyleScope,
+  style: MindMapNodeStyleOverride,
+): MindMapCommand {
+  return createBatchStyleCommand(
+    document,
+    getMindMapStyleScopeNodeIds(document, anchorNodeIds, scope),
+    style,
+  )
+}
+
+export function createResetStyleCommand(
+  document: MindMapDocument,
+  nodeIds: readonly MindMapNodeId[],
+): MindMapCommand {
+  const commands: SingleMindMapCommand[] = [...new Set(nodeIds)]
+    .filter((nodeId) => document.nodes[nodeId])
+    .map((nodeId) => ({
+      type: mindMapCommandTypes.updateNodeStyle,
+      label: 'Reset topic style',
+      payload: {
+        nodeId,
+        style: {},
+        resetKeys: [
+          'backgroundColor',
+          'borderColor',
+          'textColor',
+          'fontFamily',
+          'fontSize',
+          'fontWeight',
+          'fontStyle',
+          'textDecoration',
+          'textAlign',
+          'shape',
+          'borderWidth',
+          'borderStyle',
+          'branchColor',
+          'branchWidth',
+          'branchStyle',
+          'branchShape',
+          'fixedWidth',
+        ],
+      },
+    }))
+  if (commands.length === 0) {
+    throw new Error('Choose at least one topic before resetting its style.')
+  }
+  return {
+    type: mindMapCommandTypes.batch,
+    label: 'Reset topic styles',
     payload: { commands },
   }
 }

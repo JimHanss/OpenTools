@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mathjax/mathjax-newcm-font": "^4.1.3",
+    "@mathjax/src": "^4.1.3",
     "@opentools/mindmap-core": "0.1.0",
     "@opentools/mindmap-format": "0.1.0",
     "@opentools/mindmap-layout": "0.1.0",

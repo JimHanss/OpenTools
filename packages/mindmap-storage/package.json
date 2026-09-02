@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@opentools/mindmap-core": "0.1.0",
+    "@opentools/mindmap-format": "0.1.0",
     "dexie": "^4.3.0"
   }
 }

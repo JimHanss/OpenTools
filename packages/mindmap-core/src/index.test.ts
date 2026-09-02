@@ -7,6 +7,8 @@ import {
   findNodeIdsByText,
   getAncestorNodeIds,
   getDescendantNodeIds,
+  getNodeIdsInDocumentOrder,
+  getOwningRootNodeId,
   MindMapValidationError,
   normalizeTopLevelNodeSelection,
   type CommandExecutionContext,
@@ -16,8 +18,12 @@ import {
 } from './index'
 import {
   createDeepTreeFixture,
+  createFiftyNodeFixture,
   createFiveHundredNodeFixture,
+  createFloatingForestFixture,
+  createMalformedV3Fixtures,
   createStyledTreeFixture,
+  createV3FeatureFixture,
 } from './test-fixtures'
 
 const executionContext: CommandExecutionContext = {
@@ -50,7 +56,7 @@ const renameExecutor: MindMapCommandExecutor = (document, command, context) => {
 }
 
 describe('mindmap core document model', () => {
-  it('creates a deterministic v2 document without browser APIs', () => {
+  it('creates a deterministic v3 document without browser APIs', () => {
     const document = createMindMapDocument({
       id: 'map-1',
       rootNodeId: 'node-1',
@@ -61,7 +67,9 @@ describe('mindmap core document model', () => {
     expect(document.rootNodeId).toBe('node-1')
     expect(document.nodes['node-1']?.text).toBe('产品规划')
     expect(document.nodes['node-1']?.style.fontWeight).toBe('semibold')
-    expect(document.schemaVersion).toBe(2)
+    expect(document.schemaVersion).toBe(3)
+    expect(document.defaultStructure).toBe('logic-right')
+    expect(document.floatingTopics).toEqual({})
   })
 
   it('keeps fixture documents valid without mutating their structure', () => {
@@ -73,6 +81,14 @@ describe('mindmap core document model', () => {
       { kind: 'status', value: 'in-progress' },
       { kind: 'icon', value: 'star' },
     ])
+  })
+
+  it('keeps the complete v3 feature fixture valid', () => {
+    const document = createV3FeatureFixture()
+
+    expect(assertMindMapDocument(document)).toBe(document)
+    expect(document.nodes['wide-1']?.contentBlocks).toHaveLength(2)
+    expect(document.callouts[0]?.ownerNodeId).toBe('wide-1')
   })
 })
 
@@ -122,6 +138,56 @@ describe('mindmap core traversal and validation', () => {
 
     expect(assertMindMapDocument(document)).toBe(document)
     expect(Object.keys(document.nodes)).toHaveLength(501)
+  })
+
+  it('traverses the main tree and floating subtrees in deterministic order', () => {
+    const document = createFloatingForestFixture()
+
+    expect(getNodeIdsInDocumentOrder(document)).toEqual([
+      'root',
+      'wide-1',
+      'wide-2',
+      'floating-root',
+      'floating-child',
+      'floating-root-2',
+    ])
+    expect(getOwningRootNodeId(document, 'floating-child')).toBe(
+      'floating-root',
+    )
+    expect(
+      normalizeTopLevelNodeSelection(document, [
+        'wide-1',
+        'floating-root',
+        'floating-child',
+      ]),
+    ).toEqual(['wide-1', 'floating-root'])
+  })
+
+  it('rejects unregistered and multiply owned forest nodes', () => {
+    const unregistered = createFloatingForestFixture()
+    delete unregistered.floatingTopics['floating-root']
+    expect(() => assertMindMapDocument(unregistered)).toThrow(
+      expect.objectContaining({ code: 'invalid-root' }),
+    )
+
+    const duplicate = createFloatingForestFixture()
+    duplicate.nodes.root!.childIds.push('floating-child')
+    expect(() => assertMindMapDocument(duplicate)).toThrow(
+      expect.objectContaining({ code: 'parent-mismatch' }),
+    )
+  })
+
+  it('rejects every deterministic malformed v3 fixture', () => {
+    for (const document of Object.values(createMalformedV3Fixtures())) {
+      expect(() => assertMindMapDocument(document)).toThrow(
+        MindMapValidationError,
+      )
+    }
+  })
+
+  it('provides deterministic 50-node keyboard and 500-node scale fixtures', () => {
+    expect(Object.keys(createFiftyNodeFixture().nodes)).toHaveLength(51)
+    expect(Object.keys(createFiveHundredNodeFixture().nodes)).toHaveLength(501)
   })
 })
 

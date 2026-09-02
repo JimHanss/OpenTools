@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
     "composite": true,
     "declaration": true,
     "declarationMap": true,
@@ -8,6 +9,9 @@
     "rootDir": "src",
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
-  "references": [{ "path": "../mindmap-core" }],
+  "references": [
+    { "path": "../mindmap-core" },
+    { "path": "../mindmap-format" }
+  ],
   "include": ["src"]
 }

@@ -1,14 +1,4 @@
-export type EditorKeyboardShortcut =
-  | 'copy'
-  | 'create-child'
-  | 'create-sibling'
-  | 'cut'
-  | 'delete'
-  | 'duplicate'
-  | 'paste'
-  | 'redo'
-  | 'select-all'
-  | 'undo'
+import { editorActionIds, type EditorActionId } from './action-registry'
 
 export interface EditorKeyboardEventLike {
   readonly altKey: boolean
@@ -22,39 +12,54 @@ export interface EditorKeyboardEventLike {
 export function getEditorKeyboardShortcut(
   event: EditorKeyboardEventLike,
   isEditingText: boolean,
-): EditorKeyboardShortcut | undefined {
+): EditorActionId | undefined {
   if (event.isComposing || isEditingText) return undefined
 
   const usesPrimaryModifier = event.metaKey || event.ctrlKey
   if (usesPrimaryModifier && !event.altKey) {
     switch (event.key.toLowerCase()) {
       case 'a':
-        return 'select-all'
+        return editorActionIds.selectAll
       case 'c':
-        return 'copy'
+        return editorActionIds.copy
       case 'd':
-        return 'duplicate'
+        return editorActionIds.duplicate
       case 'v':
-        return 'paste'
+        return editorActionIds.paste
       case 'x':
-        return 'cut'
+        return editorActionIds.cut
       case 'y':
-        return 'redo'
+        return editorActionIds.redo
       case 'z':
-        return event.shiftKey ? 'redo' : 'undo'
+        return event.shiftKey ? editorActionIds.redo : editorActionIds.undo
+    }
+  }
+
+  if (event.altKey && !usesPrimaryModifier && !event.shiftKey) {
+    switch (event.key) {
+      case 'ArrowUp':
+        return editorActionIds.movePrevious
+      case 'ArrowDown':
+        return editorActionIds.moveNext
+      case 'ArrowLeft':
+        return editorActionIds.promote
+      case 'ArrowRight':
+        return editorActionIds.demote
     }
   }
 
   if (usesPrimaryModifier || event.altKey) return undefined
 
   switch (event.key) {
+    case 'F2':
+      return editorActionIds.edit
     case 'Enter':
-      return 'create-sibling'
+      return editorActionIds.createSibling
     case 'Tab':
-      return 'create-child'
+      return editorActionIds.createChild
     case 'Backspace':
     case 'Delete':
-      return 'delete'
+      return editorActionIds.delete
     default:
       return undefined
   }

@@ -43,15 +43,34 @@ describe('editor viewport calculations', () => {
     })
   })
 
-  it('fits complete bounds and centers a selected node without cropping', () => {
+  it('centers small bounds at 100% without enlarging them', () => {
     const fitted = fitViewportToRect(
       { x: 0, y: 0, width: 800, height: 400 },
       { width: 1000, height: 700 },
     )
-    expect(fitted.zoom).toBeCloseTo(1.11)
-    expect(fitted.x).toBeCloseTo(56)
-    expect(fitted.y).toBeCloseTo(128)
+    expect(fitted.zoom).toBe(1)
+    expect(fitted.x).toBe(100)
+    expect(fitted.y).toBe(150)
+  })
 
+  it('shrinks large bounds to fit and preserves the minimum zoom', () => {
+    const fitted = fitViewportToRect(
+      { x: 40, y: 20, width: 1600, height: 800 },
+      { width: 1000, height: 700 },
+    )
+    expect(fitted.zoom).toBeCloseTo(0.555)
+    expect(fitted.x).toBeCloseTo(33.8)
+    expect(fitted.y).toBeCloseTo(116.9)
+
+    expect(
+      fitViewportToRect(
+        { x: 0, y: 0, width: 20_000, height: 10_000 },
+        { width: 800, height: 600 },
+      ).zoom,
+    ).toBe(0.25)
+  })
+
+  it('centers a selected node at the requested zoom', () => {
     expect(
       centerViewportOnRect(
         { x: 100, y: 50, width: 40, height: 20 },

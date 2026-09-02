@@ -1,9 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { EditorShell } from './components/editor-shell'
 import { MapLibraryView } from './components/map-library-view'
 import { useMindMapApplication } from './app/use-mind-map-application'
 import { translateMessage } from './i18n/messages'
+
+const EditorShell = lazy(() =>
+  import('./components/editor-shell').then(({ EditorShell }) => ({
+    default: EditorShell,
+  })),
+)
 
 export default function App() {
   const { t } = useTranslation()
@@ -22,17 +28,26 @@ export default function App() {
 
   if (application.phase === 'editor' && application.session) {
     return (
-      <EditorShell
-        error={error}
-        isBusy={application.isBusy}
-        onExecute={application.executeActiveCommand}
-        onImport={application.importMap}
-        onRename={application.renameActiveMap}
-        onRedo={application.redoActiveCommand}
-        onReturnToLibrary={application.returnToLibrary}
-        onUndo={application.undoActiveCommand}
-        session={application.session}
-      />
+      <Suspense
+        fallback={
+          <main className="app-loading" aria-live="polite">
+            {t('app.loading')}
+          </main>
+        }
+      >
+        <EditorShell
+          assetRepository={application.assetRepository}
+          error={error}
+          isBusy={application.isBusy}
+          onExecute={application.executeActiveCommand}
+          onImport={application.importMap}
+          onRename={application.renameActiveMap}
+          onRedo={application.redoActiveCommand}
+          onReturnToLibrary={application.returnToLibrary}
+          onUndo={application.undoActiveCommand}
+          session={application.session}
+        />
+      </Suspense>
     )
   }
 

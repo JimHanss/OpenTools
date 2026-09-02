@@ -25,15 +25,17 @@ describe('editor UI store', () => {
     })
     store.setDialog('confirm-delete-map')
     store.setSaveStatus({ state: 'saved', revision: 3 })
+    store.setStyleClipboard({ shape: 'pill', branchWidth: 3 })
 
     expect(useEditorUiStore.getState()).toMatchObject({
-      selectedNodeIds: ['root'],
+      selection: { kind: 'topic', ids: ['root'] },
       editingNodeId: 'root',
       viewport: { x: 24, y: -12, zoom: 1.25 },
       dragPreview: { placement: 'child' },
       search: { query: 'plan', activeResultIndex: 0 },
       dialog: 'confirm-delete-map',
       saveStatus: { state: 'saved', revision: 3 },
+      styleClipboard: { shape: 'pill', branchWidth: 3 },
     })
   })
 })

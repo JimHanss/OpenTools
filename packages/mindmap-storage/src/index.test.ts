@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto'
 
+import Dexie from 'dexie'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -66,6 +67,54 @@ runRepositoryContract('Dexie repository', () => {
 })
 
 describe('repository errors', () => {
+  it('migrates an existing schema v2 IndexedDB record when it is read', async () => {
+    databaseSequence += 1
+    const databaseName = `opentools-v2-migration-${databaseSequence}`
+    const database = new Dexie(databaseName)
+    database.version(1).stores({ maps: 'id, updatedAt' })
+    await database.table('maps').put({
+      schemaVersion: 2,
+      id: 'legacy-v2',
+      title: 'Legacy v2',
+      rootNodeId: 'legacy-root',
+      nodes: {
+        'legacy-root': {
+          id: 'legacy-root',
+          parentId: null,
+          childIds: [],
+          text: 'Legacy v2',
+          collapsed: false,
+          markers: [],
+          notes: '',
+          links: [],
+          style: {
+            backgroundColor: '#ffffff',
+            borderColor: '#7c6ff2',
+            textColor: '#1e1b4b',
+          },
+        },
+      },
+      relationships: [],
+      boundaries: [],
+      summaries: [],
+      createdAt: '2026-07-12T00:00:00.000Z',
+      updatedAt: '2026-07-12T00:00:00.000Z',
+    })
+    database.close()
+
+    const repository = new DexieMindMapRepository(databaseName)
+    const migrated = await repository.get('legacy-v2')
+
+    expect(migrated).toMatchObject({
+      schemaVersion: 3,
+      id: 'legacy-v2',
+      defaultStructure: 'logic-right',
+      floatingTopics: {},
+    })
+    expect(migrated?.nodes['legacy-root']?.text).toBe('Legacy v2')
+    await Dexie.delete(databaseName)
+  })
+
   it('maps storage failures to stable recoverable errors', () => {
     const originalError = new Error('IndexedDB is unavailable')
     const error = toMindMapRepositoryError(originalError, 'write-failed')

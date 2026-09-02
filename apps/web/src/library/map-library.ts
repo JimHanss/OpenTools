@@ -3,13 +3,19 @@ import {
   cloneMindMapDocument,
   createMindMapDocument,
   executeMindMapCommand,
+  getReferencedMindMapAssetIds,
   mindMapCommandTypes,
+  type MindMapAssetMetadata,
   type MindMapDocument,
   type MindMapId,
   type MindMapNode,
   type MindMapNodeId,
 } from '@opentools/mindmap-core'
-import type { MindMapRepository } from '@opentools/mindmap-storage'
+import {
+  isMindMapRepositoryWithAssets,
+  type MindMapRepository,
+  type MindMapStoredAsset,
+} from '@opentools/mindmap-storage'
 
 const untitledMindMap = 'Untitled mind map'
 const starterMindMap = 'My first mind map'
@@ -29,7 +35,13 @@ export interface MindMapLibraryOptions {
   readonly untitledTitle?: () => string
 }
 
-export type MindMapLibraryErrorCode = 'invalid-map' | 'map-not-found'
+export type MindMapLibraryErrorCode =
+  'invalid-map' | 'map-not-found' | 'missing-assets'
+
+export interface MindMapImportAsset {
+  readonly metadata: MindMapAssetMetadata
+  readonly blob: Blob
+}
 
 export class MindMapLibraryError extends Error {
   readonly code: MindMapLibraryErrorCode
@@ -76,12 +88,43 @@ function isValidDocument(document: MindMapDocument): boolean {
   }
 }
 
-function cloneImportedNode(node: MindMapNode): MindMapNode {
+function requireImportedNodeId(
+  nodeIdMap: ReadonlyMap<MindMapNodeId, MindMapNodeId>,
+  sourceNodeId: MindMapNodeId,
+): MindMapNodeId {
+  const nodeId = nodeIdMap.get(sourceNodeId)
+  if (!nodeId)
+    throw new Error(`Missing local topic ID for import: ${sourceNodeId}`)
+  return nodeId
+}
+
+function cloneImportedNode(
+  node: MindMapNode,
+  nodeIdMap: ReadonlyMap<MindMapNodeId, MindMapNodeId>,
+): MindMapNode {
   return {
     ...node,
     childIds: [...node.childIds],
     markers: node.markers.map((marker) => ({ ...marker })),
     links: node.links.map((link) => ({ ...link })),
+    labelIds: [...node.labelIds],
+    ...(node.numbering
+      ? {
+          numbering: {
+            ...node.numbering,
+            ...(node.numbering.restartAtNodeId
+              ? {
+                  restartAtNodeId: requireImportedNodeId(
+                    nodeIdMap,
+                    node.numbering.restartAtNodeId,
+                  ),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    contentBlocks: node.contentBlocks.map((block) => ({ ...block })),
+    styleOverrides: { ...node.styleOverrides },
     style: { ...node.style },
   }
 }
@@ -159,8 +202,7 @@ export class MindMapLibraryService {
     return document
   }
 
-  /** Saves a parsed external map as a separate map with fresh local IDs. */
-  async import(document: MindMapDocument): Promise<MindMapDocument> {
+  #prepareImport(document: MindMapDocument): MindMapDocument {
     assertMindMapDocument(document)
     const now = this.#now()
     const nodeIdMap = new Map<MindMapNodeId, MindMapNodeId>()
@@ -168,32 +210,22 @@ export class MindMapLibraryService {
       nodeIdMap.set(nodeId, this.#createId())
     }
 
-    const rootNodeId = nodeIdMap.get(document.rootNodeId)
-    if (!rootNodeId) {
-      throw new MindMapLibraryError(
-        'invalid-map',
-        'The imported map is missing its root topic.',
-      )
-    }
+    const rootNodeId = requireImportedNodeId(nodeIdMap, document.rootNodeId)
 
     const nodes = Object.fromEntries(
       Object.entries(document.nodes).map(([nodeId, node]) => {
-        const id = nodeIdMap.get(nodeId)
-        if (!id) throw new Error(`Missing local topic ID for import: ${nodeId}`)
+        const id = requireImportedNodeId(nodeIdMap, nodeId)
         return [
           id,
           {
-            ...cloneImportedNode(node),
+            ...cloneImportedNode(node, nodeIdMap),
             id,
             parentId: node.parentId
-              ? (nodeIdMap.get(node.parentId) ?? null)
+              ? requireImportedNodeId(nodeIdMap, node.parentId)
               : null,
-            childIds: node.childIds.map((childId) => {
-              const child = nodeIdMap.get(childId)
-              if (!child)
-                throw new Error(`Missing local child ID for import: ${childId}`)
-              return child
-            }),
+            childIds: node.childIds.map((childId) =>
+              requireImportedNodeId(nodeIdMap, childId),
+            ),
           },
         ]
       }),
@@ -203,30 +235,103 @@ export class MindMapLibraryService {
       id: this.#createId(),
       rootNodeId,
       nodes,
+      floatingTopics: Object.fromEntries(
+        Object.entries(document.floatingTopics).map(([nodeId, placement]) => [
+          requireImportedNodeId(nodeIdMap, nodeId),
+          { ...placement },
+        ]),
+      ),
+      structureOverrides: Object.fromEntries(
+        Object.entries(document.structureOverrides).map(
+          ([nodeId, structure]) => [
+            requireImportedNodeId(nodeIdMap, nodeId),
+            structure,
+          ],
+        ),
+      ),
       relationships: document.relationships.map((relationship) => ({
         ...relationship,
-        fromNodeId:
-          nodeIdMap.get(relationship.fromNodeId) ?? relationship.fromNodeId,
-        toNodeId: nodeIdMap.get(relationship.toNodeId) ?? relationship.toNodeId,
+        fromNodeId: requireImportedNodeId(nodeIdMap, relationship.fromNodeId),
+        toNodeId: requireImportedNodeId(nodeIdMap, relationship.toNodeId),
+        controlPoints: relationship.controlPoints.map((point) => ({
+          ...point,
+        })),
       })),
       boundaries: document.boundaries.map((boundary) => ({
         ...boundary,
-        nodeIds: boundary.nodeIds.map(
-          (nodeId) => nodeIdMap.get(nodeId) ?? nodeId,
+        nodeIds: boundary.nodeIds.map((nodeId) =>
+          requireImportedNodeId(nodeIdMap, nodeId),
         ),
       })),
       summaries: document.summaries.map((summary) => ({
         ...summary,
-        nodeIds: summary.nodeIds.map(
-          (nodeId) => nodeIdMap.get(nodeId) ?? nodeId,
+        nodeIds: summary.nodeIds.map((nodeId) =>
+          requireImportedNodeId(nodeIdMap, nodeId),
         ),
+      })),
+      callouts: document.callouts.map((callout) => ({
+        ...callout,
+        ownerNodeId: requireImportedNodeId(nodeIdMap, callout.ownerNodeId),
+        offset: { ...callout.offset },
+        style: { ...callout.style },
       })),
       createdAt: now,
       updatedAt: now,
     }
 
     assertMindMapDocument(imported)
+    return imported
+  }
+
+  /** Saves a parsed external map as a separate map with fresh local IDs. */
+  async import(document: MindMapDocument): Promise<MindMapDocument> {
+    if (getReferencedMindMapAssetIds(document).size > 0) {
+      throw new MindMapLibraryError(
+        'missing-assets',
+        'A document with images must be imported from a complete bundle.',
+      )
+    }
+    const imported = this.#prepareImport(document)
     await this.#repository.save(imported)
+    return imported
+  }
+
+  /** Validates and atomically imports a document together with its Blob assets. */
+  async importWithAssets(
+    document: MindMapDocument,
+    assets: readonly MindMapImportAsset[],
+  ): Promise<MindMapDocument> {
+    if (!isMindMapRepositoryWithAssets(this.#repository)) {
+      throw new MindMapLibraryError(
+        'missing-assets',
+        'The active storage adapter cannot import image assets.',
+      )
+    }
+    const referencedAssetIds = getReferencedMindMapAssetIds(document)
+    const assetsById = new Map(
+      assets.map((asset) => [asset.metadata.id, asset] as const),
+    )
+    if (
+      assetsById.size !== assets.length ||
+      assetsById.size !== referencedAssetIds.size ||
+      [...referencedAssetIds].some((assetId) => !assetsById.has(assetId))
+    ) {
+      throw new MindMapLibraryError(
+        'missing-assets',
+        'Every referenced image must be present exactly once.',
+      )
+    }
+
+    const imported = this.#prepareImport(document)
+    const storedAssets: MindMapStoredAsset[] = [...assetsById.values()].map(
+      (asset) => ({
+        id: asset.metadata.id,
+        mapIds: [imported.id],
+        metadata: { ...asset.metadata },
+        blob: asset.blob,
+      }),
+    )
+    await this.#repository.saveWithAssets(imported, storedAssets)
     return imported
   }
 
@@ -276,7 +381,32 @@ export class MindMapLibraryService {
       updatedAt: now,
     }
 
-    await this.#repository.save(document)
+    const referencedAssetIds = getReferencedMindMapAssetIds(sourceDocument)
+    if (referencedAssetIds.size === 0) {
+      await this.#repository.save(document)
+      return document
+    }
+    if (!isMindMapRepositoryWithAssets(this.#repository)) {
+      throw new MindMapLibraryError(
+        'missing-assets',
+        'The active storage adapter cannot duplicate image assets.',
+      )
+    }
+    const sourceAssets = await this.#repository.assetRepository.listByMap(id)
+    const assetsById = new Map(sourceAssets.map((asset) => [asset.id, asset]))
+    if ([...referencedAssetIds].some((assetId) => !assetsById.has(assetId))) {
+      throw new MindMapLibraryError(
+        'missing-assets',
+        'A referenced image is missing from local storage.',
+      )
+    }
+    await this.#repository.saveWithAssets(
+      document,
+      [...referencedAssetIds].map((assetId) => ({
+        ...assetsById.get(assetId)!,
+        mapIds: [document.id],
+      })),
+    )
     return document
   }
 

@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type {
-  CommandResult,
-  MindMapCommand,
-  MindMapDocument,
-  MindMapId,
+import {
+  getReferencedMindMapAssetIds,
+  type CommandResult,
+  type MindMapCommand,
+  type MindMapDocument,
+  type MindMapId,
 } from '@opentools/mindmap-core'
-import { parseMindMapDocumentJson } from '@opentools/mindmap-format'
-import { DexieMindMapRepository } from '@opentools/mindmap-storage'
+import {
+  isMindMapBundle,
+  parseMindMapBundleJson,
+  parseMindMapDocumentJson,
+} from '@opentools/mindmap-format'
+import {
+  DexieMindMapRepository,
+  MindMapAssetGarbageCollector,
+} from '@opentools/mindmap-storage'
 
 import { useEditorUiStore } from '../editor/store'
 import i18n from '../i18n'
@@ -59,6 +67,10 @@ const initialState: MindMapApplicationState = {
 /** Coordinates repository-backed library state with one active editor session. */
 export function useMindMapApplication() {
   const repository = useMemo(() => new DexieMindMapRepository(), [])
+  const assetGarbageCollector = useMemo(
+    () => new MindMapAssetGarbageCollector(repository.assetRepository),
+    [repository],
+  )
   const library = useMemo(
     () =>
       new MindMapLibraryService(repository, {
@@ -90,6 +102,12 @@ export function useMindMapApplication() {
         .getState()
         .setSaveStatus(session.getSnapshot().saveStatus)
       unsubscribeRef.current = session.subscribe((snapshot) => {
+        if (snapshot.saveStatus.state === 'saved') {
+          assetGarbageCollector.schedule(
+            snapshot.document.id,
+            getReferencedMindMapAssetIds(snapshot.document),
+          )
+        }
         useEditorUiStore.getState().setSaveStatus(snapshot.saveStatus)
         setState((currentState) => ({
           ...currentState,
@@ -107,7 +125,7 @@ export function useMindMapApplication() {
         session: session.getSnapshot(),
       }))
     },
-    [disposeSession, repository],
+    [assetGarbageCollector, disposeSession, repository],
   )
 
   const hydrate = useCallback(async () => {
@@ -141,8 +159,9 @@ export function useMindMapApplication() {
       const session = sessionRef.current
       if (session) void session.flush().catch(() => undefined)
       disposeSession()
+      assetGarbageCollector.dispose()
     }
-  }, [disposeSession, hydrate])
+  }, [assetGarbageCollector, disposeSession, hydrate])
 
   const createMap = useCallback(
     async (title: string) => {
@@ -177,6 +196,7 @@ export function useMindMapApplication() {
         const activeSession = sessionRef.current
         if (activeSession && activeSession.getSnapshot().document.id !== id) {
           await activeSession.flush()
+          await assetGarbageCollector.flush()
         }
         const document = await library.open(id)
         startSession(document)
@@ -189,7 +209,7 @@ export function useMindMapApplication() {
         setState((currentState) => ({ ...currentState, isBusy: false }))
       }
     },
-    [library, startSession],
+    [assetGarbageCollector, library, startSession],
   )
 
   const renameMap = useCallback(
@@ -271,6 +291,7 @@ export function useMindMapApplication() {
     setState((currentState) => ({ ...currentState, isBusy: true, error: null }))
     try {
       await sessionRef.current?.flush()
+      await assetGarbageCollector.flush()
       disposeSession()
       useEditorUiStore.getState().resetEditorUi()
       const maps = await library.list()
@@ -289,7 +310,7 @@ export function useMindMapApplication() {
     } finally {
       setState((currentState) => ({ ...currentState, isBusy: false }))
     }
-  }, [disposeSession, library])
+  }, [assetGarbageCollector, disposeSession, library])
 
   const renameActiveMap = useCallback((title: string) => {
     try {
@@ -349,11 +370,29 @@ export function useMindMapApplication() {
         isBusy: true,
       }))
       try {
-        const parsed = parseMindMapDocumentJson(
-          await readBrowserFileAsText(file),
-        )
+        const source = await readBrowserFileAsText(file)
+        let candidate: unknown = null
+        try {
+          candidate = JSON.parse(source) as unknown
+        } catch {
+          // The typed document parser below reports the localized JSON error.
+        }
         await sessionRef.current?.flush()
-        const imported = await library.import(parsed)
+        await assetGarbageCollector.flush()
+        const imported = isMindMapBundle(candidate)
+          ? await (async () => {
+              const bundle = await parseMindMapBundleJson(source)
+              return library.importWithAssets(
+                bundle.document,
+                bundle.assets.map((asset) => ({
+                  metadata: asset.metadata,
+                  blob: new Blob([new Uint8Array(asset.bytes)], {
+                    type: asset.metadata.mimeType,
+                  }),
+                })),
+              )
+            })()
+          : await library.import(parseMindMapDocumentJson(source))
         startSession(imported)
       } catch (error) {
         setState((currentState) => ({
@@ -364,11 +403,12 @@ export function useMindMapApplication() {
         setState((currentState) => ({ ...currentState, isBusy: false }))
       }
     },
-    [library, startSession],
+    [assetGarbageCollector, library, startSession],
   )
 
   return {
     ...state,
+    assetRepository: repository.assetRepository,
     createMap,
     deleteMap,
     duplicateMap,

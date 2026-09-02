@@ -5,14 +5,20 @@ import {
 } from '@opentools/mindmap-core'
 
 import { MindMapFormatError, toMindMapFormatError } from './errors'
-import { migrateV1Document, normalizeV2Document } from './migration'
+import {
+  migrateV1Document,
+  migrateV2Document,
+  normalizeV3Document,
+} from './migration'
 import {
   mindMapDocumentSchema,
   mindMapDocumentV1Schema,
   mindMapDocumentV2Schema,
+  mindMapDocumentV3Schema,
 } from './schema'
 
 export * from './errors'
+export * from './bundle'
 export * from './migration'
 export * from './schema'
 
@@ -21,7 +27,7 @@ function getSchemaVersion(input: unknown): unknown {
   return Reflect.get(input, 'schemaVersion')
 }
 
-function validateTree(document: MindMapDocument): MindMapDocument {
+function validateForest(document: MindMapDocument): MindMapDocument {
   try {
     return assertMindMapDocument(document)
   } catch (error) {
@@ -39,7 +45,7 @@ function validateTree(document: MindMapDocument): MindMapDocument {
 function validateSerializableDocument(
   document: MindMapDocument,
 ): MindMapDocument {
-  const parsed = mindMapDocumentV2Schema.safeParse(document)
+  const parsed = mindMapDocumentV3Schema.safeParse(document)
   if (!parsed.success) {
     throw new MindMapFormatError(
       'invalid-document',
@@ -48,10 +54,10 @@ function validateSerializableDocument(
     )
   }
 
-  return validateTree(normalizeV2Document(parsed.data))
+  return validateForest(normalizeV3Document(parsed.data))
 }
 
-/** Parses a v1 or v2 file and always returns the editable v2 domain format. */
+/** Parses a v1, v2 or v3 file and always returns editable schema v3. */
 export function parseMindMapDocument(input: unknown): MindMapDocument {
   const schemaVersion = getSchemaVersion(input)
 
@@ -62,7 +68,7 @@ export function parseMindMapDocument(input: unknown): MindMapDocument {
     )
   }
 
-  if (schemaVersion > 2) {
+  if (schemaVersion > 3) {
     throw new MindMapFormatError(
       'unsupported-schema-version',
       'This mind map file was created by a newer version of OpenTools.',
@@ -82,9 +88,11 @@ export function parseMindMapDocument(input: unknown): MindMapDocument {
     const document =
       parsed.data.schemaVersion === 1
         ? migrateV1Document(mindMapDocumentV1Schema.parse(parsed.data))
-        : normalizeV2Document(mindMapDocumentV2Schema.parse(parsed.data))
+        : parsed.data.schemaVersion === 2
+          ? migrateV2Document(mindMapDocumentV2Schema.parse(parsed.data))
+          : normalizeV3Document(mindMapDocumentV3Schema.parse(parsed.data))
 
-    return validateTree(document)
+    return validateForest(document)
   } catch (error) {
     if (error instanceof MindMapFormatError) throw error
     throw toMindMapFormatError(

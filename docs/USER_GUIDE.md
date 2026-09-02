@@ -1,82 +1,189 @@
-# OpenTools user guide
+# OpenTools 思维导图使用指南
 
-## Working with maps
+本指南对应 Web MVP V2。当前产品是本地优先的单人编辑器：导图保存在当前浏览器的 IndexedDB 中，重要内容请定期导出 JSON 备份。
 
-The library is the starting screen. Create a map, open an existing map, rename
-or duplicate it, and delete it only after confirmation. Changes to an open map
-are saved locally in the browser automatically. The status in the editor header
-shows `Saving`, `Saved locally`, or a recoverable save error.
+## 导图库
 
-## Create and edit topics
+打开应用后首先进入导图库：
 
-Select a topic with a click. Use `Ctrl` (or `Command` on macOS) while clicking
-to add or remove topics from the selection. Double-click a topic or press `F2`
-to edit its text.
+- 新建：创建带中心主题的空导图。
+- 打开：进入选中导图的编辑器。
+- 重命名：修改导图标题。
+- 创建副本：复制 document 和被引用图片资源，生成独立导图。
+- 删除：删除导图并回收不再被其他导图引用的资源。
+- 导入 JSON：接受 OpenTools schema v1/v2/v3 或带图片的 bundle，校验后作为新的本地副本保存。
 
-| Action                           | Shortcut                                                      |
-| -------------------------------- | ------------------------------------------------------------- |
-| Add a sibling                    | `Enter`                                                       |
-| Add a child                      | `Tab`                                                         |
-| Edit selected topic              | `F2` or double-click                                          |
-| Commit text edit                 | Click away, or `Ctrl`/`Command` + `Enter`                     |
-| Cancel text edit                 | `Esc`                                                         |
-| Delete selected topics           | `Delete` or `Backspace`                                       |
-| Undo / redo                      | `Ctrl`/`Command` + `Z`, then `Ctrl`/`Command` + `Shift` + `Z` |
-| Copy / cut / paste               | `Ctrl`/`Command` + `C` / `X` / `V`                            |
-| Duplicate selected topic subtree | `Ctrl`/`Command` + `D`                                        |
-| Select all topics                | `Ctrl`/`Command` + `A`                                        |
+编辑过程会自动保存。保存失败不会清空当前编辑内容或 undo/redo history；页面会显示可恢复错误，此时应先导出 JSON 备份，再检查浏览器存储空间。
 
-Keyboard commands are suppressed while typing in a form field or while an IME
-composition is active. The root topic cannot be deleted or moved below another
-topic.
+## 基础编辑工具栏
 
-## Arrange the canvas
+工具栏使用统一 Action registry，根据当前选择、history、平台能力和异步状态计算可用性。不可用按钮会保留 disabled reason；宽度不超过 960px 时，文件操作等入口进入“更多”菜单，右侧主题检查器移动到画布下方，功能不会消失。
 
-Drag a topic onto another topic to make it a child, or above/below it to reorder
-siblings. A highlighted preview indicates a valid destination. Invalid drops,
-including a drop onto a descendant, are rejected without modifying the map.
+### History
 
-Drag empty canvas space to pan. Use the mouse wheel or zoom controls to zoom,
-then use **Fit** or **Center selected** to navigate. Collapse controls hide a
-branch without deleting its data; searches expand the ancestors of the active
-result when necessary.
+- 撤销、重做。
+- 撤销后执行新编辑会清空 redo 分支。
 
-The **Tidy all** toolbar button previews the number of sibling branches that
-would be alphabetically reordered. It does not reparent topics. After applying
-it, use Undo to restore the exact prior order.
+### Topic
 
-## Topic details and structure tools
+- 新建同级主题、新建子主题、编辑、创建副本、删除。
+- 折叠/展开、复制、剪切、粘贴、全选。
+- 插入父主题、仅删除当前主题并把 children 按原顺序提升。
+- 向前/向后移动、提升/降低层级。
+- 将普通主题及完整 subtree 转为 Floating Topic。
+- 聚焦当前分支、退出分支聚焦。
 
-The topic inspector provides color/style presets, priority/status/icon markers,
-notes, and safe `http`, `https`, or `mailto` links. Links only open after an
-explicit click.
+Root 不能删除、插入父主题、提升层级或转为 Floating Topic。Floating Topic 可以直接拖到普通主题上接回树；目标位置由拖放提示决定。
 
-With two selected sibling or otherwise independent topics, the **Structure**
-section can create, rename, or delete a directed relationship line. With two or
-more selected top-level topics, it can add, rename, or delete a boundary and a
-summary. These records are local to the map, participate in undo/redo, and are
-included in SVG and PNG exports. If a grouped topic is hidden by collapse, its
-relationship/group decoration is hidden too, while the saved data remains.
+### Structure
 
-## Search
+- 整理布局。
+- 逻辑图（向右）、逻辑图（向左）、双向思维导图、树状图、组织结构图。
 
-Use **Search topics** to find topic text without case sensitivity. The previous
-and next buttons cycle through matches, select the active result, expand its
-required ancestors, and center it on the canvas.
+未选择主题或选择 root 时，切换的是整图 `defaultStructure`；选择普通分支或 Floating Topic 时，切换的是该 subtree 的 structure override，因此可以构成 mixed structure。
 
-## Backup, import, and export
+### Insert
 
-Use **Export JSON** for an editable backup. The resulting OpenTools JSON file
-round-trips map content, styling, metadata, collapse state, relationships,
-boundaries, summaries, and ordering. **Import JSON** always creates a separate
-local copy with fresh internal IDs, so it never overwrites an existing map.
+- Floating Topic、Marker、label、Callout。
+- 关系线、边界、概要。
+- 备注、链接、图片、公式。
 
-**Export SVG** produces a full-map vector image independent of the current zoom
-or viewport. **Export PNG** rasterizes that complete SVG; if a browser canvas
-cannot safely render the requested image size, OpenTools reports the issue and
-downloads SVG instead.
+关系线需要恰好选择两个主题；边界和概要至少需要两个主题；每个主题当前只允许一个 Callout。无主题选中时仍可创建 Floating Topic。
 
-Browser storage is local to the browser profile and device. Clearing browser
-site data, using private browsing, changing profiles, or a browser storage
-failure can remove or make maps unavailable. Export JSON regularly for durable
-backups.
+### Style
+
+- 复制样式、粘贴样式、重置样式、打开样式面板。
+- 切换经典、海洋、森林、晚霞四套内置 theme。
+
+内容剪贴板和样式剪贴板互相独立。样式面板支持单选和多选；多选不同值会显示 mixed state，只改写用户实际修改的属性。
+
+### View 与 File
+
+- 放大、缩小、适应画布、居中所选主题。
+- 导入 JSON、导出 JSON、导出 SVG、导出 PNG。
+
+## 快捷键
+
+macOS 使用 `Cmd` 替代 `Ctrl`。
+
+| 操作               | 快捷键                         |
+| ------------------ | ------------------------------ |
+| 新建同级主题       | `Enter`                        |
+| 新建子主题         | `Tab`                          |
+| 编辑主题           | `F2`                           |
+| 删除选择           | `Delete` 或 `Backspace`        |
+| 撤销               | `Ctrl+Z`                       |
+| 重做               | `Ctrl+Shift+Z` 或 `Ctrl+Y`     |
+| 复制 / 剪切 / 粘贴 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
+| 创建副本           | `Ctrl+D`                       |
+| 全选               | `Ctrl+A`                       |
+| 同级向前 / 向后    | `Alt+↑` / `Alt+↓`              |
+| 提升 / 降低层级    | `Alt+←` / `Alt+→`              |
+
+在主题文字、备注、链接、label、公式等输入框中，编辑器不会抢占普通文本快捷键。IME 输入组合阶段不会触发全局主题命令。
+
+## 选择、画布与拖放
+
+- 单击主题进行单选；按住 `Ctrl/Cmd` 单击可追加或取消选择。
+- 双击主题或按 `F2` 进入编辑时会默认全选原文字，可直接输入替换；编辑器沿用主题原有字体、内边距与外观，文字在达到最大宽度前会自然撑开主题。
+- 单选普通非根主题后，主题右侧的“创建子主题”和下方的“创建下一个同级主题”按钮可快速建节点；Floating Topic 根仅显示“创建子主题”。创建后会立即进入全选编辑。
+- 有子主题的节点只在被选中时显示折叠/展开按钮；编辑或拖动期间会暂时隐藏这些浮动控件。
+- 多选中如果同时包含 ancestor 与 descendant，移动、复制和删除会先规范化为顶层 subtree，避免重复处理。
+- 拖动普通主题到目标主题的前、后或内部区域，可重排或更换 parent；非法 cycle 目标不会显示有效放置提示。超过拖动阈值后，原主题会半透明，并由独立浮层跟随鼠标。可以直接从主题文字开始拖动，浏览器不会选中文字。
+- 拖动 Floating Topic 空白方向会更新它的内容坐标；拖到普通主题上会将完整 subtree 接回树。
+- 每次打开、新建、导入或切换导图后，Root 以 100% 居中显示；后续编辑和窗口调整不会覆盖用户的平移、缩放位置。
+- 在画布空白处按住鼠标左键拖动即可平移；按住 `Alt` 再用鼠标左键拖动可框选主题。右键拖动仍兼容平移。滚轮缩放；“适应画布”会包括主树与所有 Floating Topic。小导图最多保持 100% 并居中，大导图才会自动缩小。
+- 拖动过程中按 `Escape` 或窗口失焦会取消预览，不会提交半完成 Command。
+
+## 高级结构编辑
+
+### 插入父主题
+
+选中非 root 主题后执行“插入父主题”。新主题占据原主题在 parent 中的位置，原主题成为它的第一个 child；可完整撤销与重做。
+
+### 仅删除当前主题
+
+选中有 children 的非 root 主题后执行该操作，只删除当前节点，children 按原顺序提升到原 parent。删除整个 subtree 仍使用普通“删除”。Floating Topic root 不使用这个有歧义的操作。
+
+### Floating Topic
+
+执行“插入 > Floating Topic”创建自由主题并立即编辑。它可拥有普通子树、内容块、Callout 和样式；自动整理主树不会改变其锚点。选中普通主题后可执行“转为自由主题”，完整 subtree 会脱离原 parent；把 Floating Topic 拖到普通主题上即可接回。
+
+### 分支聚焦
+
+选中任意主题后执行“聚焦分支”，画布只显示该主题与 descendants，但不会修改真实 root 或父子关系。顶部面包屑可返回 parent 或退出聚焦。focus/filter 只影响视图，不会裁剪保存或导出的完整导图。
+
+## Labels、Marker、编号与筛选
+
+- 在语义面板创建 map 级 label，设置名称和颜色，再将其应用到一个或多个主题。
+- Label 可以重命名、改色或删除；删除 catalog 项会同步移除 node 引用。
+- Marker 支持 priority、status 与 icon。
+- 自动编号支持 decimal、alpha、roman，以及 siblings/hierarchical 模式和起始值；显示编号由顺序派生，不写入主题原始文字。
+- 筛选面板可组合文本、labels、priority、status 与是否含 notes，并选择 AND 或 OR。
+- 筛选会突出匹配项并保留到匹配项的上下文路径；清除筛选不会改变折叠、选择或 document 数据。
+
+## Callout、关系线、边界与概要
+
+- Callout 关联一个 owner 主题，但不是 child；可以编辑文本、方向、offset、形状、颜色、边框和字体。
+- 关系线连接两个主题，可编辑 label、曲线/直线/折线、颜色、宽度、虚线和端点；拖动 control point 可调整路径。
+- 边界包围多个选择主题，可编辑形状、填充、透明度和边框。
+- 概要关联多个主题，可编辑括号/线型及文字样式。
+- 点击这些对象后，右侧增强面板显示对应属性；删除、撤销和重做都走统一 history。
+
+## 图片
+
+1. 选中一个主题，执行“插入 > 图片”。
+2. 选择 PNG、JPEG、WebP、GIF 或安全 SVG。
+3. 图片解码和安全检查通过后，以内容块形式插入。
+4. 在主题属性中调整宽高、是否保持比例、替代文字或删除。
+
+单个图片最大 5 MiB，单张导图累计最大 25 MiB。图片 Blob 与 metadata 会参与复制、自动保存、JSON bundle、SVG 和 PNG 导出。类型不符、尺寸异常、checksum 不一致或配额不足时，插入事务整体失败，不会留下孤立 metadata。
+
+## 数学公式
+
+1. 选中主题，执行“插入 > 公式”。
+2. 输入 LaTeX 源文本并查看 MathJax 预览。
+3. 校验成功后提交；无效 LaTeX 会显示错误，且不会覆盖最后一次有效公式。
+4. 再次打开公式编辑器可修改源文本或删除内容块。
+
+MathJax 按需加载，渲染结果按源文本缓存。公式随 subtree 复制、移动、保存和导出；JSON 保存的是 LaTeX 源文本，不依赖缓存恢复。
+
+## 主题与增强样式
+
+主题支持以下属性：
+
+- 形状：圆角矩形、矩形、胶囊、下划线、无边框。
+- 固定宽度或内容自适应宽度。
+- 背景、边框颜色/宽度/实线虚线。
+- 字体、字号、字重、斜体、删除线、文字颜色和对齐。
+- 分支线颜色、宽度、实线/虚线以及曲线/直线/折线。
+
+样式可以应用到当前主题、同级、全部 descendants 或同层主题。Theme 提供默认样式，node 的 `styleOverrides` 只保存明确覆盖值；“重置样式”恢复跟随 theme。
+
+## 导入与导出
+
+### JSON
+
+- 无图片引用时导出 schema v3 document。
+- 有图片引用时导出 `opentools-mindmap-bundle`，内含 document、资源 metadata、Base64 和 SHA-256。
+- 导入 v1/v2 会自动迁移为 v3；导入始终创建新的本地副本。
+- Bundle 中任何资源缺失、篡改或超限都会整包失败，原导图库不变。
+
+### SVG 与 PNG
+
+- 两者都使用完整 document 重新布局，包含屏幕外 Floating Topic、图片、公式与增强对象，不受 viewport、focus 和 filter 裁剪。
+- SVG 是矢量分享文件，不是可恢复编辑的 JSON。
+- PNG 最大边长 16384 像素、最大 1600 万像素。范围过大、浏览器内存不足或编码失败时，应用会解释原因并自动下载 SVG fallback。
+
+## 常见错误与恢复
+
+- “存储配额不足”：删除不需要的本地导图/站点数据，或先导出 JSON 再更换浏览器 profile。
+- “剪贴板不可用”：浏览器拒绝系统 Clipboard 时，当前 OpenTools 会话 clipboard 仍可支持内部复制粘贴。
+- “资源缺失/校验失败”：重新选择原图片；不要继续覆盖唯一备份。
+- “文件格式不支持”：确认是 OpenTools JSON/bundle；Xmind 与 OPML 当前尚未支持。
+- “PNG 过大”：直接使用自动生成的 SVG，或把距离极远的 Floating Topic 移近后再导出。
+- 浏览器崩溃后：重新进入导图库加载最后一次成功 autosave；若提示恢复失败，使用最近的 JSON 备份重新导入。
+
+## 当前范围外
+
+当前版本不提供云同步、多人协作、账号、AI、完整 Xmind/OPML 兼容、通用白板、PWA 安装、小程序、原生移动端或桌面端打包。

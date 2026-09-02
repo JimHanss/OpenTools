@@ -44,7 +44,10 @@ export function getSvgExportSize(svg: string): {
     width <= 0 ||
     height <= 0
   ) {
-    throw new Error('The SVG export has no usable dimensions.')
+    throw new MindMapExportError(
+      'invalid-bounds',
+      'The SVG export has no usable dimensions.',
+    )
   }
   return { width: Math.ceil(width), height: Math.ceil(height) }
 }
@@ -55,19 +58,34 @@ export async function renderSvgAsPng(svg: string): Promise<Blob> {
   try {
     const image = new Image()
     image.src = url
-    await image.decode()
-    const { width, height } = getSvgExportSize(svg)
-    if (width <= 0 || height <= 0 || width * height > 16_000_000) {
-      throw new Error(
-        'The map is too large to export safely as PNG. Export SVG instead.',
+    try {
+      await image.decode()
+    } catch (error) {
+      throw new MindMapExportError(
+        'render-failed',
+        'The prepared SVG could not be decoded for PNG export.',
+        { cause: error },
       )
     }
+    const { width, height } = getSvgExportSize(svg)
+    assertPngExportCapacity(width, height)
     const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
+    try {
+      canvas.width = width
+      canvas.height = height
+    } catch (error) {
+      throw new MindMapExportError(
+        'memory-exhausted',
+        'The browser could not allocate the PNG canvas.',
+        { cause: error },
+      )
+    }
     const context = canvas.getContext('2d')
     if (!context)
-      throw new Error('Canvas export is unavailable in this browser.')
+      throw new MindMapExportError(
+        'png-unavailable',
+        'Canvas export is unavailable in this browser.',
+      )
     context.drawImage(image, 0, 0)
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
@@ -75,7 +93,8 @@ export async function renderSvgAsPng(svg: string): Promise<Blob> {
           result
             ? resolve(result)
             : reject(
-                new Error(
+                new MindMapExportError(
+                  'png-encoding-failed',
                   'PNG export could not be completed. Export SVG instead.',
                 ),
               ),
@@ -86,3 +105,4 @@ export async function renderSvgAsPng(svg: string): Promise<Blob> {
     URL.revokeObjectURL(url)
   }
 }
+import { assertPngExportCapacity, MindMapExportError } from './export-error'

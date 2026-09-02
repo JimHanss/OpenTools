@@ -98,8 +98,14 @@ export function fitViewportToRect(
 ): EditorViewport {
   const availableWidth = Math.max(1, viewportSize.width - padding * 2)
   const availableHeight = Math.max(1, viewportSize.height - padding * 2)
-  const zoom = clampViewportZoom(
-    Math.min(availableWidth / rect.width, availableHeight / rect.height),
+  const zoom = Math.min(
+    1,
+    clampViewportZoom(
+      Math.min(
+        availableWidth / Math.max(1, rect.width),
+        availableHeight / Math.max(1, rect.height),
+      ),
+    ),
   )
 
   return {

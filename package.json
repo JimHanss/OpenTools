@@ -17,7 +17,7 @@
     "preview": "npm run preview --workspace @opentools/web",
     "typecheck": "tsc -b",
     "lint": "oxlint apps packages",
-    "test": "vitest run",
+    "test": "vitest run --exclude apps/web/src/editor/performance.test.ts && vitest run apps/web/src/editor/performance.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
